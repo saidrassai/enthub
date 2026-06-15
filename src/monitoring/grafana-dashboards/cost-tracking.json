@@ -1,0 +1,60 @@
+{
+  "dashboard": {
+    "title": "Cost Tracking",
+    "uid": "cost-tracking",
+    "tags": ["rag", "cost", "billing", "gpu"],
+    "timezone": "utc",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Estimated GPU Cost/hour",
+        "type": "stat",
+        "datasource": "Prometheus",
+        "targets": [{"expr": "sum(nvidia_gpu_estimated_cost_per_hour)", "legendFormat": "$/hr"}],
+        "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4}
+      },
+      {
+        "id": 2,
+        "title": "Daily Cost Trend",
+        "type": "graph",
+        "datasource": "Prometheus",
+        "targets": [{"expr": "rate(rag_estimated_gpu_cost_total[1h]) * 3600 * 24", "legendFormat": "Daily Cost"}],
+        "gridPos": {"x": 6, "y": 0, "w": 18, "h": 8}
+      },
+      {
+        "id": 3,
+        "title": "Cost per Tenant (Daily)",
+        "type": "table",
+        "datasource": "Prometheus",
+        "targets": [{"expr": "rate(rag_tenant_gpu_cost_total[1d]) by (tenant)", "legendFormat": "{{tenant}}"}],
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8}
+      },
+      {
+        "id": 4,
+        "title": "Cost per Query",
+        "type": "graph",
+        "datasource": "Prometheus",
+        "targets": [{"expr": "rate(rag_estimated_gpu_cost_total[1h]) / rate(rag_queries_total[1h])", "legendFormat": "$/query"}],
+        "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8}
+      },
+      {
+        "id": 5,
+        "title": "Token Cost Breakdown",
+        "type": "piechart",
+        "datasource": "Langfuse",
+        "targets": [{"expr": "sum by (model) (langfuse_token_cost_usd)", "legendFormat": "{{model}}"}],
+        "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8}
+      },
+      {
+        "id": 6,
+        "title": "Projected Monthly Cost",
+        "type": "stat",
+        "datasource": "Prometheus",
+        "targets": [{"expr": "rate(rag_estimated_gpu_cost_total[24h]) * 3600 * 24 * 30", "legendFormat": "Monthly $"}],
+        "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8}
+      }
+    ],
+    "time": {"from": "now-7d", "to": "now"},
+    "refresh": "60s"
+  }
+}

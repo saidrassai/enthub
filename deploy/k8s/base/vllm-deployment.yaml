@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-llm
+  namespace: rag-platform
+  labels:
+    app: vllm-llm
+    component: model
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-llm
+  template:
+    metadata:
+      labels:
+        app: vllm-llm
+        component: model
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:latest
+          command:
+            - "--model"
+            - "Qwen/Qwen2.5-14B-Instruct"
+            - "--dtype"
+            - "auto"
+            - "--gpu-memory-utilization"
+            - "0.85"
+            - "--tensor-parallel-size"
+            - "1"
+            - "--max-model-len"
+            - "8192"
+            - "--trust-remote-code"
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: rag-secrets
+                  key: hf-token
+            - name: CUDA_VISIBLE_DEVICES
+              value: "0"
+          resources:
+            requests:
+              nvidia.com/gpu: "1"
+              cpu: "4"
+              memory: "16Gi"
+            limits:
+              nvidia.com/gpu: "1"
+              cpu: "8"
+              memory: "32Gi"
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /root/.cache/huggingface
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: hf-cache
+          emptyDir:
+            sizeLimit: 50Gi

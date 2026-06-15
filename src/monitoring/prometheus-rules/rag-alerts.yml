@@ -1,0 +1,290 @@
+groups:
+  # ---------------------------------------------------------------------------
+  # RAG APPLICATION ALERTS
+  # ---------------------------------------------------------------------------
+  - name: rag-application
+    interval: 30s
+    rules:
+      # Query Latency
+      - alert: RAGQueryHighLatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(rag_query_latency_seconds_bucket[5m])
+          ) > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RAG query P95 latency > 30s"
+          description: "Tenant {{ $labels.tenant }} P95 query latency is {{ $value | humanizeDuration }}"
+
+      - alert: RAGQueryCriticalLatency
+        expr: |
+          histogram_quantile(0.99,
+            rate(rag_query_latency_seconds_bucket[5m])
+          ) > 60
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "RAG query P99 latency > 60s"
+          description: "Tenant {{ $labels.tenant }} P99 query latency is {{ $value | humanizeDuration }}"
+
+      # Error Rate
+      - alert: RAGQueryHighErrorRate
+        expr: |
+          rate(rag_queries_total{status="error"}[5m]) / rate(rag_queries_total[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RAG query error rate > 5%"
+          description: "Tenant {{ $labels.tenant }} error rate is {{ $value | humanizePercentage }}"
+
+      - alert: RAGQueryCriticalErrorRate
+        expr: |
+          rate(rag_queries_total{status="error"}[5m]) / rate(rag_queries_total[5m]) > 0.20
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "RAG query error rate > 20%"
+          description: "Tenant {{ $labels.tenant }} error rate is {{ $value | humanizePercentage }}"
+
+      # Queue Depth
+      - alert: RAGQueryQueueBacklog
+        expr: |
+          rag_query_queue_depth > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RAG query queue backlog > 100"
+          description: "Tenant {{ $labels.tenant }} has {{ $value }} queued queries"
+
+      # Tenant Quota
+      - alert: RAGTenantStorageQuotaExceeded
+        expr: |
+          rag_tenant_storage_bytes / (rag_tenant_storage_quota_gb * 1024 * 1024 * 1024) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tenant {{ $labels.tenant }} storage quota > 90%"
+          description: "Used {{ $value | humanizePercentage }} of allocated storage"
+
+      - alert: RAGTenantQPMLimitApproaching
+        expr: |
+          rate(rag_queries_total{tenant=~".+"}[1m]) * 60 / rag_tenant_qpm_limit > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tenant {{ $labels.tenant }} QPM limit > 80%"
+          description: "Current QPM is {{ $value | humanizePercentage }} of limit"
+
+  # ---------------------------------------------------------------------------
+  # MODEL SERVICE ALERTS
+  # ---------------------------------------------------------------------------
+  - name: model-services
+    interval: 30s
+    rules:
+      # vLLM
+      - alert: VLLMDown
+        expr: |
+          up{job="vllm"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "vLLM instance down"
+          description: "{{ $labels.instance }} has been down for 1 minute"
+
+      - alert: VLLMHighGPUMemory
+        expr: |
+          (vllm_gpu_memory_used_bytes / vllm_gpu_memory_total_bytes) > 0.95
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "vLLM GPU memory > 95%"
+          description: "{{ $labels.instance }} GPU memory usage is {{ $value | humanizePercentage }}"
+
+      - alert: VLLMHighQueueDepth
+        expr: |
+          vllm_request_queue_depth > 50
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "vLLM request queue depth > 50"
+          description: "{{ $labels.instance }} has {{ $value }} queued requests"
+
+      # txtai (Embed/Rerank)
+      - alert: TxtAIDown
+        expr: |
+          up{job="txtai"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "txtai instance down"
+          description: "{{ $labels.instance }} has been down for 1 minute"
+
+      # Qdrant
+      - alert: QdrantDown
+        expr: |
+          up{job="qdrant"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Qdrant instance down"
+          description: "Qdrant has been down for 1 minute"
+
+      - alert: QdrantHighMemory
+        expr: |
+          (qdrant_memory_used_bytes / qdrant_memory_limit_bytes) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Qdrant memory > 85%"
+          description: "Qdrant memory usage is {{ $value | humanizePercentage }}"
+
+      - alert: QdrantDiskSpaceLow
+        expr: |
+          (qdrant_disk_used_bytes / qdrant_disk_total_bytes) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Qdrant disk space > 85%"
+          description: "Qdrant disk usage is {{ $value | humanizePercentage }}"
+
+  # ---------------------------------------------------------------------------
+  # INFRASTRUCTURE ALERTS
+  # ---------------------------------------------------------------------------
+  - name: infrastructure
+    interval: 30s
+    rules:
+      # Kubernetes
+      - alert: KubePodNotReady
+        expr: |
+          kube_pod_status_phase{phase="Running"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pod {{ $labels.pod }} not ready"
+          description: "Pod in namespace {{ $labels.namespace }} has been not ready for 5 minutes"
+
+      - alert: KubeNodeNotReady
+        expr: |
+          kube_node_status_condition{condition="Ready",status="true"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Node {{ $labels.node }} not ready"
+          description: "Kubernetes node has been not ready for 5 minutes"
+
+      - alert: KubePodCrashLooping
+        expr: |
+          rate(kube_pod_container_status_restarts_total[15m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pod {{ $labels.pod }} crash looping"
+          description: "Container {{ $labels.container }} in pod {{ $labels.pod }} is restarting"
+
+      # GPU
+      - alert: GPUMemoryHigh
+        expr: |
+          (nvidia_gpu_memory_used_bytes / nvidia_gpu_memory_total_bytes) > 0.95
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU {{ $labels.gpu }} memory > 95%"
+          description: "GPU memory usage is {{ $value | humanizePercentage }}"
+
+      - alert: GPUTemperatureHigh
+        expr: |
+          nvidia_gpu_temperature_celsius > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU {{ $labels.gpu }} temperature > 85°C"
+          description: "GPU temperature is {{ $value }}°C"
+
+      # Disk
+      - alert: DiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space < 10% on {{ $labels.instance }}"
+          description: "Root filesystem has {{ $value | humanizePercentage }} free space"
+
+      # Memory
+      - alert: MemoryUsageHigh
+        expr: |
+          (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memory usage > 90% on {{ $labels.instance }}"
+          description: "System memory usage is {{ $value | humanizePercentage }}"
+
+      # CPU
+      - alert: CPUUsageHigh
+        expr: |
+          100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU usage > 90% on {{ $labels.instance }}"
+          description: "CPU usage has been > 90% for 10 minutes"
+
+  # ---------------------------------------------------------------------------
+  # TENANT BUSINESS ALERTS
+  # ---------------------------------------------------------------------------
+  - name: tenant-business
+    interval: 60s
+    rules:
+      - alert: TenantInactive
+        expr: |
+          rate(rag_queries_total{tenant=~".+"}[1h]) == 0
+        for: 24h
+        labels:
+          severity: info
+        annotations:
+          summary: "Tenant {{ $labels.tenant }} inactive for 24h"
+          description: "No queries from tenant in last 24 hours"
+
+      - alert: TenantSuddenTrafficDrop
+        expr: |
+          rate(rag_queries_total{tenant=~".+"}[10m]) < 0.1 * rate(rag_queries_total{tenant=~".+"}[1h])
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tenant {{ $labels.tenant }} traffic dropped > 90%"
+          description: "Query rate dropped significantly compared to 1h average"
+
+      - alert: IngestionFailureRateHigh
+        expr: |
+          rate(rag_ingestions_total{status="failed"}[10m]) / rate(rag_ingestions_total[10m]) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ingestion failure rate > 20%"
+          description: "Tenant {{ $labels.tenant }} ingestion failures: {{ $value | humanizePercentage }}"

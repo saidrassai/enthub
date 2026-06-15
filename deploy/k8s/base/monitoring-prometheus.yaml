@@ -1,0 +1,28 @@
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: rag-prometheus
+  namespace: rag-platform
+spec:
+  replicas: 2
+  serviceAccountName: prometheus
+  serviceMonitorSelector:
+    matchLabels:
+      team: rag-platform
+  ruleSelector:
+    matchLabels:
+      team: rag-platform
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "2Gi"
+    limits:
+      cpu: "2000m"
+      memory: "8Gi"
+  storage:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: fast-ssd
+        resources:
+          requests:
+            storage: 100Gi

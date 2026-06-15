@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: rag-platform
+  labels:
+    app: keycloak
+    component: auth
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+        component: auth
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9000"
+        prometheus.io.path: "/metrics"
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:25.0
+          args: ["start-dev", "--import-realm"]
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 9000
+              name: metrics
+          env:
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: rag-secrets
+                  key: keycloak-admin-user
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rag-secrets
+                  key: keycloak-admin-password
+            - name: KC_DB
+              value: "postgres"
+            - name: KC_DB_URL_HOST
+              value: "postgres"
+            - name: KC_DB_URL_PORT
+              value: "5432"
+            - name: KC_DB_URL_DATABASE
+              value: "keycloak"
+            - name: KC_DB_USERNAME
+              value: "keycloak"
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rag-secrets
+                  key: keycloak-db-password
+            - name: KC_HOSTNAME
+              value: "keycloak.rag-platform.svc.cluster.local"
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_PROXY
+              value: "edge"
+            - name: KC_METRICS_ENABLED
+              value: "true"
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+          volumeMounts:
+            - name: realm-config
+              mountPath: /opt/keycloak/data/import
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+          livenessProbe:
+            httpGet:
+              path: /health/ready
+              port: 9000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+      volumes:
+        - name: realm-config
+          configMap:
+            name: keycloak-realm-config

@@ -1,0 +1,123 @@
+============================================================
+Enterprise Agentic RAG Platform — Gitignore
+============================================================
+    
+--- Python ---
+pycache/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+coverage.xml
+*.cover
+.hypothesis/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.ruff_cache/
+.venv/
+venv/
+env/
+ENV/
+pip-wheel-metadata/
+*.egg-info/
+dist/
+build/
+.wheel/
+
+
+--- UV / Pip / Poetry ---
+uv.lock
+poetry.lock
+Pipfile.lock
+requirements.txt
+requirements-*.txt
+   
+--- Jupyter / Notebooks ---
+.ipynb_checkpoints/
+*.ipynb
+!*.ipynb  # keep notebooks in repo if intentional
+    
+--- Environment / Secrets ---
+.env
+.env.*
+!.env.example
+!.env.template
+*.secret
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+.secrets/
+secrets/
+
+--- Data / Models / Artifacts (Large binary files) ---
+data/
+models/
+*.bin
+*.pt
+*.pth
+*.gguf
+*.safetensors
+*.onnx
+*.engine
+*.plan
+*.cache/
+.hf_cache/
+.huggingface/
+wandb/
+mlruns/
+.tfevents.
+    
+--- Docker ---
+.docker/
+docker-compose.override.yml
+*.tar
+*.tar.gz
+
+--- Kubernetes ---
+.kube/
+kubeconfig
+*.kubeconfig
+helm/*.lock
+charts/*.tgz
+    
+--- IDE / Editors ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*.log
+.log.
+logs/
+
+--- Terraform / Infra (if used) ---
+*.tfstate
+.tfstate.
+*.tfvars
+*.tfvars.json
+.terraform/
+.terraform.lock.hcl
+    
+--- Language Server / LSP ---
+.ccls/
+.clangd/
+    
+--- OS ---
+*.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+
+

@@ -1,0 +1,50 @@
+{
+  "dashboard": {
+    "title": "Tenant Usage & Quotas",
+    "uid": "tenant-usage",
+    "tags": ["rag", "tenant", "quotas"],
+    "timezone": "utc",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Queries/sec by Tenant",
+        "type": "graph",
+        "datasource": "Prometheus",
+        "targets": [{"expr": "rate(rag_queries_total[1m]) by (tenant)", "legendFormat": "{{tenant}}"}],
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8}
+      },
+      {
+        "id": 2,
+        "title": "Storage Usage vs Quota",
+        "type": "bargauge",
+        "datasource": "Prometheus",
+        "targets": [
+          {"expr": "rag_tenant_storage_bytes", "legendFormat": "Used"},
+          {"expr": "rag_tenant_storage_quota_gb * 1024 * 1024 * 1024", "legendFormat": "Quota"}
+        ],
+        "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8}
+      },
+      {
+        "id": 3,
+        "title": "QPM Usage vs Limit",
+        "type": "graph",
+        "datasource": "Prometheus",
+        "targets": [
+          {"expr": "rate(rag_queries_total[1m]) * 60 by (tenant)", "legendFormat": "{{tenant}} Current"},
+          {"expr": "rag_tenant_qpm_limit", "legendFormat": "{{tenant}} Limit"}
+        ],
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8}
+      },
+      {
+        "id": 4,
+        "title": "Guardrails Violations by Tenant",
+        "type": "table",
+        "datasource": "Prometheus",
+        "targets": [{"expr": "increase(rag_guardrails_violations_total[1h]) by (tenant, violation_type)", "legendFormat": "{{tenant}} - {{violation_type}}"}],
+        "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8}
+      }
+    ],
+    "time": {"from": "now-6h", "to": "now"},
+    "refresh": "30s"
+  }
+}

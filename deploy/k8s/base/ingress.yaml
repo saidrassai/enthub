@@ -1,0 +1,79 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rag-ingress
+  namespace: rag-platform
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  tls:
+    - hosts:
+        - rag.yourcompany.com
+        - api.rag.yourcompany.com
+        - langfuse.rag.yourcompany.com
+        - grafana.rag.yourcompany.com
+        - keycloak.rag.yourcompany.com
+      secretName: rag-tls-secret
+  rules:
+    - host: rag.yourcompany.com
+      http:
+        paths:
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: rag-api
+                port:
+                  number: 80
+          - path: /health
+            pathType: Prefix
+            backend:
+              service:
+                name: rag-api
+                port:
+                  number: 80
+    - host: api.rag.yourcompany.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: rag-api
+                port:
+                  number: 80
+    - host: langfuse.rag.yourcompany.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: langfuse
+                port:
+                  number: 80
+    - host: grafana.rag.yourcompany.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  number: 80
+    - host: keycloak.rag.yourcompany.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: keycloak
+                port:
+                  number: 8080

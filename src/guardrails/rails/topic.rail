@@ -1,0 +1,41 @@
+# =============================================================================
+# TOPIC CONTROL RAIL
+# =============================================================================
+# Restricts responses to valid topics, blocks invalid topics
+# =============================================================================
+
+rail_name: "topic-control"
+description: "Restricts responses to approved topics"
+
+validator: "guardrails.hub.RestrictToTopic"
+on_fail: "exception"
+
+params:
+  valid_topics:
+    - "general_information"
+    - "company_facts"
+    - "product_information"
+    - "policy_information"
+    - "procedural_information"
+    - "technical_specifications"
+    - "historical_data"
+    - "regulatory_information"
+    - "market_data"
+    - "financial_definitions"
+  invalid_topics:
+    - "investment_advice"
+    - "trading_recommendations"
+    - "tax_advice"
+    - "legal_advice"
+    - "medical_advice"
+    - "personal_counseling"
+    - "political_opinions"
+    - "religious_content"
+    - "harmful_instructions"
+    - "illegal_activities"
+    - "adult_content"
+    - "violence_promotion"
+    - "hate_speech"
+    - "self_harm"
+  disable_classifier: false
+  on_fail: "exception"

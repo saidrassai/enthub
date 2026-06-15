@@ -1,0 +1,30 @@
+# =============================================================================
+# CONTENT SAFETY RAIL
+# =============================================================================
+# Detects toxic language, profanity, hate speech, self-harm, violence
+# =============================================================================
+
+rail_name: "content-safety"
+description: "Comprehensive content safety guardrails"
+
+validators:
+  - name: "toxic-language"
+    validator: "guardrails.hub.ToxicLanguage"
+    params:
+      threshold: 0.5
+      on_fail: "exception"
+
+  - name: "profanity-free"
+    validator: "guardrails.hub.ProfanityFree"
+    params:
+      on_fail: "exception"
+
+  - name: "secrets-present"
+    validator: "guardrails.hub.SecretsPresent"
+    params:
+      on_fail: "exception"
+
+  - name: "url-free"
+    validator: "guardrails.hub.URLFree"
+    params:
+      on_fail: "exception"

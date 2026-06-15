@@ -1,0 +1,609 @@
+version: '3.8'
+
+# =============================================================================
+# ENTERPRISE AGENTIC RAG — DOCKER COMPOSE (CORE SERVICES)
+# =============================================================================
+# Usage:
+#   GPU:     docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#   CPU:     docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d
+#   Minimal: docker compose -f docker-compose.yml up -d (no LLM/VLM, embed/rerank only)
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # API GATEWAY — Traefik (mTLS, routing, rate limiting, auth proxy)
+  # ---------------------------------------------------------------------------
+  traefik:
+    image: traefik:v3.0
+    container_name: rag-traefik
+    command:
+      - --api.dashboard=true
+      - --api.insecure=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=rag-network
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@example.com}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - --log.level=INFO
+      - --accesslog=true
+      - --accesslog.filepath=/var/log/traefik/access.log
+      - --accesslog.format=json
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Dashboard (secure in prod)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/letsencrypt:/letsencrypt
+      - ./traefik/logs:/var/log/traefik
+      - ./traefik/dynamic:/etc/traefik/dynamic:ro
+    networks:
+      - rag-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_AUTH:-admin:$$apr1$$...}"
+
+  # ---------------------------------------------------------------------------
+  # AUTH / RBAC — Keycloak (OIDC, SAML, multi-realm multi-tenancy)
+  # ---------------------------------------------------------------------------
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: rag-keycloak
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-changeme}
+      KC_DB: postgres
+      KC_DB_URL_HOST: postgres
+      KC_DB_URL_PORT: 5432
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-changeme}
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-keycloak.${DOMAIN:-localhost}}
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY: edge
+      KC_LOG_LEVEL: INFO
+      KC_METRICS_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./auth/keycloak-config/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    ports:
+      - "8080:8080"
+    networks:
+      - rag-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # DATABASE — PostgreSQL (Keycloak, Langfuse, tenant metadata)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: rag-postgres
+    environment:
+      POSTGRES_DB: rag_platform
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_MULTIPLE_DATABASES: keycloak,langfuse,rag_platform
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh:ro
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag -d rag_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # VECTOR DATABASE — Qdrant (hybrid search, multi-tenancy, collections=tenants)
+  # ---------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.10
+    container_name: rag-qdrant
+    command:
+      - --config-path=/qdrant/config/production.yaml
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__STORAGE__PATH: /qdrant/storage
+      QDRANT__TELEMETRY_DISABLED: "true"
+    volumes:
+      - qdrant-data:/qdrant/storage
+      - ./config/qdrant/production.yaml:/qdrant/config/production.yaml:ro
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # OBJECT STORAGE — MinIO (S3-compatible, ingestion artifacts, backups)
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:RELEASE.2024-06-20T16-50-27Z
+    container_name: rag-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-changeme}
+      MINIO_PROMETHEUS_AUTH_TYPE: public
+      MINIO_PROMETHEUS_URL: http://prometheus:9090
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # LLM INFERENCE — vLLM (OpenAI-compatible, tensor parallel, PagedAttention)
+  # ---------------------------------------------------------------------------
+  llm:
+    image: vllm/vllm-openai:latest
+    container_name: rag-llm
+    # GPU config in docker-compose.gpu.yml, CPU in docker-compose.cpu.yml
+    environment:
+      VLLM_MODEL: ${LLM_MODEL:-Qwen/Qwen2.5-14B-Instruct}
+      VLLM_DTYPE: auto
+      VLLM_GPU_MEMORY_UTILIZATION: 0.85
+      VLLM_MAX_MODEL_LEN: 8192
+      VLLM_TENSOR_PARALLEL_SIZE: 1
+      VLLM_PIPELINE_PARALLEL_SIZE: 1
+      VLLM_TRUST_REMOTE_CODE: "true"
+      VLLM_ENFORCE_EAGER: "false"
+      VLLM_DISABLE_LOG_STATS: "true"
+      HF_TOKEN: ${HF_TOKEN:-}
+      CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-0}
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+      - ./config/models/vllm-profiles.yaml:/app/vllm-profiles.yaml:ro
+    ports:
+      - "8001:8000"
+    networks:
+      - rag-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # EMBEDDINGS — txtai (BGE-M3: dense + sparse + ColBERT, CPU/GPU)
+  # ---------------------------------------------------------------------------
+  embed:
+    image: ghcr.io/neuml/txtai:latest
+    container_name: rag-embed
+    command:
+      - --model
+      - ${EMBED_MODEL:-BAAI/bge-m3}
+      - --device
+      - ${EMBED_DEVICE:-cuda}
+      - --port
+      - "8000"
+      - --batch-size
+      - "32"
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+    ports:
+      - "8002:8000"
+    networks:
+      - rag-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # RERANKER — txtai (BGE-Reranker-v2-M3, cross-encoder)
+  # ---------------------------------------------------------------------------
+  rerank:
+    image: ghcr.io/neuml/txtai:latest
+    container_name: rag-rerank
+    command:
+      - --model
+      - ${RERANK_MODEL:-BAAI/bge-reranker-v2-m3}
+      - --device
+      - ${RERANK_DEVICE:-cuda}
+      - --port
+      - "8000"
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+    ports:
+      - "8003:8000"
+    networks:
+      - rag-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # VISION-LANGUAGE — vLLM (Qwen2-VL, optional)
+  # ---------------------------------------------------------------------------
+  vlm:
+    image: vllm/vllm-openai:latest
+    container_name: rag-vlm
+    profiles: ["gpu-full", "vlm"]
+    environment:
+      VLLM_MODEL: ${VLM_MODEL:-Qwen/Qwen2-VL-7B-Instruct}
+      VLLM_DTYPE: auto
+      VLLM_GPU_MEMORY_UTILIZATION: 0.8
+      VLLM_MAX_MODEL_LEN: 4096
+      VLLM_LIMIT_MM_PER_PROMPT: "image=10,video=2"
+      VLLM_TRUST_REMOTE_CODE: "true"
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+    ports:
+      - "8004:8000"
+    networks:
+      - rag-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # PDF PARSING — Marker (PDF → Markdown + tables + equations)
+  # ---------------------------------------------------------------------------
+  parse:
+    image: vikparuchuri/marker:latest
+    container_name: rag-parse
+    command: python -m marker.api --host 0.0.0.0 --port 8000
+    environment:
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "8005:8000"
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # GUARDRAILS — Guardrails AI server (PII, safety, topic, custom rails)
+  # ---------------------------------------------------------------------------
+  guardrails:
+    build:
+      context: ../../src/guardrails
+      dockerfile: Dockerfile
+    container_name: rag-guardrails
+    environment:
+      GUARDRAILS_CONFIG: /app/rails
+      LOG_LEVEL: INFO
+    volumes:
+      - ./src/guardrails/rails:/app/rails:ro
+    ports:
+      - "8006:8000"
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # AGENTIC RAG API — LangGraph (FastAPI, plan-execute-reflect)
+  # ---------------------------------------------------------------------------
+  rag-api:
+    build:
+      context: ../../src/rag-api
+      dockerfile: Dockerfile
+    container_name: rag-api
+    environment:
+      # Core endpoints
+      LLM_ENDPOINT: http://llm:8000/v1
+      EMBED_ENDPOINT: http://embed:8000
+      RERANK_ENDPOINT: http://rerank:8000
+      VLM_ENDPOINT: http://vlm:8000/v1
+      PARSE_ENDPOINT: http://parse:8000
+      QDRANT_URL: http://qdrant:6333
+      GUARDRAILS_ENDPOINT: http://guardrails:8000
+
+      # Auth
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-rag-platform}
+      KEYCLOAK_CLIENT_ID: rag-api
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-}
+
+      # Tenant
+      DEFAULT_TENANT: demo
+      TENANT_RESOLUTION: header  # header | subdomain | path
+
+      # Limits
+      MAX_QUERY_LENGTH: 4000
+      MAX_ITERATIONS: 3
+      RETRIEVAL_TOP_K: 20
+      RERANK_TOP_N: 5
+
+      # Observability
+      LANGFUSE_HOST: http://langfuse:3000
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+
+      # Logging
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+    ports:
+      - "8000:8000"
+    networks:
+      - rag-network
+    depends_on:
+      llm:
+        condition: service_healthy
+      embed:
+        condition: service_healthy
+      rerank:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      guardrails:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rag-api.rule=PathPrefix(`/v1`) || PathPrefix(`/health`)"
+      - "traefik.http.routers.rag-api.entrypoints=websecure"
+      - "traefik.http.routers.rag-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.rag-api.loadbalancer.server.port=8000"
+      - "traefik.http.middlewares.rag-ratelimit.ratelimit.burst=100"
+      - "traefik.http.middlewares.rag-ratelimit.ratelimit.average=50"
+
+  # ---------------------------------------------------------------------------
+  # LLM OBSERVABILITY — Langfuse (traces, evals, costs, prompt management)
+  # ---------------------------------------------------------------------------
+  langfuse:
+    image: langfuse/langfuse:latest
+    container_name: rag-langfuse
+    environment:
+      DATABASE_URL: postgresql://rag:${POSTGRES_PASSWORD:-changeme}@postgres:5432/langfuse
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-changeme}
+      NEXTAUTH_URL: http://langfuse:3000
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-changeme}
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: langfuse
+      S3_REGION: us-east-1
+      TELEMETRY_ENABLED: "false"
+      SALT: ${LANGFUSE_SALT:-changeme}
+    ports:
+      - "3000:3000"
+    networks:
+      - rag-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/public/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # METRICS — Prometheus (scraping, alerting)
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.54
+    container_name: rag-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=1y
+      - --web.enable-lifecycle
+      - --web.enable-admin-api
+    volumes:
+      - prometheus-data:/prometheus
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/prometheus/alertmanager.yml:/etc/prometheus/alertmanager.yml:ro
+      - ./src/monitoring/prometheus-rules:/etc/prometheus/rules:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # VISUALIZATION — Grafana (dashboards, alerting UI)
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:11.0
+    container_name: rag-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-prom-operator}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/rag-overview.json
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ./config/grafana/dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+      - ./src/monitoring/grafana-dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3001:3000"
+    networks:
+      - rag-network
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # LOG AGGREGATION — Loki + Promtail
+  # ---------------------------------------------------------------------------
+  loki:
+    image: grafana/loki:2.9
+    container_name: rag-loki
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki-data:/loki
+      - ./config/loki/local-config.yaml:/etc/loki/local-config.yaml:ro
+    ports:
+      - "3100:3100"
+    networks:
+      - rag-network
+
+  promtail:
+    image: grafana/promtail:2.9
+    container_name: rag-promtail
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./config/promtail/promtail.yaml:/etc/promtail/promtail.yaml:ro
+    networks:
+      - rag-network
+    depends_on:
+      - loki
+
+  # ---------------------------------------------------------------------------
+  # DISTRIBUTED TRACING — Tempo
+  # ---------------------------------------------------------------------------
+  tempo:
+    image: grafana/tempo:2.4
+    container_name: rag-tempo
+    command:
+      - -config.file=/etc/tempo/tempo.yaml
+    volumes:
+      - tempo-data:/var/tempo
+      - ./config/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+    ports:
+      - "3200:3200"
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+    networks:
+      - rag-network
+
+  # ---------------------------------------------------------------------------
+  # TENANT OPERATOR — Custom controller (provisions tenant resources)
+  # ---------------------------------------------------------------------------
+  tenant-operator:
+    build:
+      context: ../../src/auth/operator
+      dockerfile: Dockerfile
+    container_name: rag-tenant-operator
+    environment:
+      KUBERNETES_NAMESPACE: ${K8S_NAMESPACE:-rag-platform}
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_ADMIN_USER: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-changeme}
+      QDRANT_URL: http://qdrant:6333
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-changeme}
+      POSTGRES_DSN: postgresql://rag:${POSTGRES_PASSWORD:-changeme}@postgres:5432/rag_platform
+    networks:
+      - rag-network
+    depends_on:
+      - keycloak
+      - qdrant
+      - minio
+      - postgres
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  rag-network:
+    driver: bridge
+    name: rag-network
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  postgres-data:
+    driver: local
+  qdrant-data:
+    driver: local
+  minio-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  loki-data:
+    driver: local
+  tempo-data:
+    driver: local
+  hf-cache:
+    driver: local

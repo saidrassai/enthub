@@ -1,0 +1,252 @@
+{
+  "realm": "rag-platform",
+  "enabled": true,
+  "displayName": "Enterprise Agentic RAG Platform",
+  "displayNameHtml": "<div class=\"kc-logo-text\"><span>Enterprise Agentic RAG</span></div>",
+  "registrationAllowed": false,
+  "registrationEmailAsUsername": false,
+  "rememberMe": true,
+  "verifyEmail": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+
+  "loginTheme": "keycloak",
+  "accountTheme": "keycloak",
+  "adminTheme": "keycloak",
+  "emailTheme": "keycloak",
+
+  "accessTokenLifespan": 900,
+  "accessTokenLifespanForImplicitFlow": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "offlineSessionMaxLifespan": 5184000,
+  "accessCodeLifespan": 60,
+  "accessCodeLifespanLogin": 1800,
+  "accessCodeLifespanUserAction": 300,
+  "actionTokenGeneratedByAdminLifespan": 43200,
+  "actionTokenGeneratedByUserLifespan": 300,
+
+  "oauth2DeviceCodeLifespan": 600,
+  "oauth2DevicePollingInterval": 5,
+
+  "clients": [
+    {
+      "clientId": "rag-api",
+      "name": "RAG API Service",
+      "description": "Service account for RAG API",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${KEYCLOAK_CLIENT_SECRET}",
+      "redirectUris": ["https://*.${DOMAIN}/*"],
+      "webOrigins": ["https://*.${DOMAIN}"],
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": true,
+      "attributes": {
+        "access.token.lifespan": "900",
+        "client.secret.creation.time": "0"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": ["profile", "email", "roles", "tenant"],
+      "optionalClientScopes": ["offline_access", "microprofile-jwt"]
+    },
+    {
+      "clientId": "rag-admin",
+      "name": "RAG Admin Dashboard",
+      "description": "Admin dashboard for tenant management",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${RAG_ADMIN_CLIENT_SECRET}",
+      "redirectUris": ["https://admin.${DOMAIN}/*"],
+      "webOrigins": ["https://admin.${DOMAIN}"],
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "defaultClientScopes": ["profile", "email", "roles", "tenant", "admin"],
+      "optionalClientScopes": ["offline_access"]
+    },
+    {
+      "clientId": "rag-portal",
+      "name": "RAG User Portal",
+      "description": "End-user portal for querying RAG",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${RAG_PORTAL_CLIENT_SECRET}",
+      "redirectUris": ["https://portal.${DOMAIN}/*"],
+      "webOrigins": ["https://portal.${DOMAIN}"],
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "defaultClientScopes": ["profile", "email", "roles", "tenant"],
+      "optionalClientScopes": ["offline_access"]
+    }
+  ],
+
+  "roles": {
+    "realm": [
+      {"name": "admin", "description": "Platform administrator", "composite": true, "composites": ["realm-admin", "tenant-admin", "user-admin"]},
+      {"name": "tenant-admin", "description": "Tenant administrator", "composite": true, "composites": ["query", "ingest", "manage-users", "view-metrics"]},
+      {"name": "user", "description": "Standard user", "composite": true, "composites": ["query", "view-own-data"]},
+      {"name": "query", "description": "Can query RAG system"},
+      {"name": "ingest", "description": "Can ingest documents"},
+      {"name": "manage-users", "description": "Can manage tenant users"},
+      {"name": "view-metrics", "description": "Can view usage metrics"},
+      {"name": "view-own-data", "description": "Can view own query history"},
+      {"name": "realm-admin", "description": "Keycloak realm admin"}
+    ],
+    "client": {
+      "rag-api": [
+        {"name": "query", "description": "API query access"},
+        {"name": "ingest", "description": "API ingestion access"},
+        {"name": "admin", "description": "API admin access"}
+      ]
+    }
+  },
+
+  "groups": [
+    {
+      "name": "Platform Admins",
+      "path": "/Platform Admins",
+      "realmRoles": ["admin"],
+      "subGroups": []
+    },
+    {
+      "name": "Tenants",
+      "path": "/Tenants",
+      "realmRoles": [],
+      "subGroups": []
+    }
+  ],
+
+  "identityProviders": [
+    {
+      "alias": "saml",
+      "displayName": "SAML 2.0",
+      "providerId": "saml",
+      "enabled": true,
+      "trustEmail": true,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "config": {
+        "singleSignOnServiceUrl": "${SAML_SSO_URL}",
+        "singleLogoutServiceUrl": "${SAML_SLO_URL}",
+        "nameIDPolicyFormat": "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
+        "signatureAlgorithm": "RSA_SHA256",
+        "xmlSigKeyInfoKeyNameTransformer": "KEY_ID",
+        "validateSignature": "true",
+        "forceAuthn": "false",
+        "allowCreate": "true"
+      }
+    },
+    {
+      "alias": "oidc",
+      "displayName": "OIDC (Azure AD, Google, Okta)",
+      "providerId": "oidc",
+      "enabled": true,
+      "trustEmail": true,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "config": {
+        "authorizationUrl": "${OIDC_AUTH_URL}",
+        "tokenUrl": "${OIDC_TOKEN_URL}",
+        "userInfoUrl": "${OIDC_USERINFO_URL}",
+        "clientId": "${OIDC_CLIENT_ID}",
+        "clientSecret": "${OIDC_CLIENT_SECRET}",
+        "defaultScope": "openid profile email",
+        "useJwksUrl": "true",
+        "jwksUrl": "${OIDC_JWKS_URL}",
+        "validateSignature": "true",
+        "issuer": "${OIDC_ISSUER}"
+      }
+    }
+  ],
+
+  "requiredActions": [
+    "UPDATE_PASSWORD",
+    "UPDATE_PROFILE",
+    "VERIFY_EMAIL",
+    "CONFIGURE_TOTP",
+    "UPDATE_TOTP",
+    "WEB_AUTHN_REGISTER",
+    "WEB_AUTHN_REGISTER_PASSWORDLESS"
+  ],
+
+  "passwordPolicy": "length(12) and upperCase(1) and lowerCase(1) and digits(1) and specialChars(1) and notRecentlyUsed(5) and notUsername and hashIterations(100000)",
+
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA256",
+  "otpPolicyInitialCounter": 0,
+  "otpPolicyDigits": 6,
+  "otpPolicyLookAheadWindow": 1,
+  "otpPolicyPeriod": 30,
+
+  "webAuthnPolicyRpEntityName": "Enterprise RAG",
+  "webAuthnPolicyRpId": "${DOMAIN}",
+  "webAuthnPolicyAttestationConveyancePreference": "direct",
+  "webAuthnPolicyAuthenticatorAttachment": "platform",
+  "webAuthnPolicyRequireResidentKey": "preferred",
+  "webAuthnPolicyUserVerificationRequirement": "preferred",
+  "webAuthnPolicyTimeout": 60000,
+  "webAuthnPolicyAvoidSameAuthenticatorRegister": true,
+  "webAuthnPolicyAcceptableAaguids": [],
+
+  "jwtPolicy": {
+    "accessToken": {
+      "claims": {
+        "tenant_id": "${tenant_id}",
+        "roles": "${roles}",
+        "permissions": "${permissions}"
+      }
+    }
+  },
+
+  "eventsConfig": {
+    "eventsListeners": ["jboss-logging"],
+    "enabledEventTypes": [
+      "LOGIN",
+      "LOGIN_ERROR",
+      "REGISTER",
+      "REGISTER_ERROR",
+      "LOGOUT",
+      "LOGOUT_ERROR",
+      "CODE_TO_TOKEN",
+      "CODE_TO_TOKEN_ERROR",
+      "CLIENT_REGISTER",
+      "CLIENT_REGISTER_ERROR",
+      "CLIENT_UPDATE",
+      "CLIENT_UPDATE_ERROR",
+      "CLIENT_DELETE",
+      "CLIENT_DELETE_ERROR",
+      "TOKEN_REFRESH",
+      "TOKEN_REFRESH_ERROR",
+      "GRANT_CONSENT",
+      "GRANT_CONSENT_ERROR",
+      "REVOKE_GRANT",
+      "REVOKE_GRANT_ERROR",
+      "SEND_VERIFY_EMAIL",
+      "SEND_VERIFY_EMAIL_ERROR",
+      "LOGIN_PASSWORDLESS",
+      "LOGIN_PASSWORDLESS_ERROR"
+    ],
+    "adminEventsEnabled": true,
+    "adminEventsDetailsEnabled": true
+  },
+
+  "attributes": {
+    "frontendUrl": "https://${DOMAIN}",
+    "theme": "keycloak"
+  }
+}
