@@ -32,8 +32,7 @@ ENTHub is an **enterprise agentic RAG platform** built by a team of specialized 
 | Human PM | 1. Provision VM or Kubernetes cluster. 2. Create GitHub repo (`enthub`). 3. Enable **SSH** key + **GitHub Actions** (`workflow` scope) in `gh auth login`. |
 | Human PM | 4. Set `github` Linear integration (optional, for automatic issue linking). |
 | Human PM | 5. Create Linear team **Project Hermes** + labels mapped 1:1 to the 18 skills. |
-| Human PM | 6. Clone repo, install `python3`, `docker`, `docker-compose`, `gh`, `gh`. |
-| Human PM | 7. Add new compose/`.env` via the active infra ticket; old deploy artifacts have been removed. |
+|| Human PM | 6. Clone repo, install `python3`, `docker`, `docker-compose`, `gh`, `gh`. |
 
 ### 2.2 Repo skeleton (Sprint 0 — bag 1)
 
@@ -171,7 +170,9 @@ If a ticket falls outside these boundaries, Human PM re-tags or splits it before
 type/issue-number-short-desc
   ├── feature/ING-101-hotdir-staging
   ├── bugfix/ING-104-permission-sync
+  ├── chore/INFRA-1-empty-repo-skeleton
   ├── chore/INFRA-2-docker-compose
+  └── chore/INFRA-3-ci-pipeline
   └── refactor/DEBT-3-tenant-isolation
 ```
 
