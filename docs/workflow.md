@@ -33,7 +33,7 @@ ENTHub is an **enterprise agentic RAG platform** built by a team of specialized 
 | Human PM | 4. Set `github` Linear integration (optional, for automatic issue linking). |
 | Human PM | 5. Create Linear team **Project Hermes** + labels mapped 1:1 to the 18 skills. |
 | Human PM | 6. Clone repo, install `python3`, `docker`, `docker-compose`, `gh`, `gh`. |
-| Human PM | 7. Copy `deploy/docker/.env.example` → `.env`; fill secrets (DB URL, API keys, etc.). |
+| Human PM | 7. Add new compose/`.env` via the active infra ticket; old deploy artifacts have been removed. |
 
 ### 2.2 Repo skeleton (Sprint 0 — bag 1)
 
@@ -44,7 +44,7 @@ enthub/
 ├── AGENTS.md              # agent role slicings (immutable)
 ├── README.md              # on-ramp for humans
 ├── LICENSE                # MIT
-├── .gitignore             # includes ENTHub_project/, */onyx/, */surfsense/, */anythingllm/
+├── .gitignore             # Python, Node, IDE, and archive exclusions
 ├── .github/
 │   └── workflows/
 │       └── ci.yml         # lint-type-test, enterprise-rag-review, docker-build
@@ -66,13 +66,10 @@ enthub/
 │   │   └── agent/         # multi-hop agent graph (MAX_ROUNDS=5)
 │   ├── govern/            # RBAC, PII redaction, audit log, telemetry wall
 │   └── frontend/          # Node.js/Next.js consumer only
-├── config/                # Qdrant, Prometheus, Loki, Tempo manifests
+├── config/                # new infra manifests (to be added by tickets)
 ├── deploy/
 │   ├── docker/
-│   │   ├── docker-compose.yml      # single-node dev stack
-│   │   ├── docker-compose.cpu.yml
-│   │   ├── docker-compose.gpu.yml
-│   │   ├── Dockerfiles per microservice
+│   │   ├── docker-compose.yml      # single-node dev stack (to be added by tickets)
 │   │   ├── traefik/       # reverse proxy + TLS termination
 │   │   └── scripts/
 │   └── k8s/               # production overlays (future)
@@ -258,14 +255,12 @@ Every implementation must match a pre-existing skeleton. Exceptions require **AD
 ## 6. Deployment
 
 ### 6.1 Staging (every merged PR → auto-deploy)
-- `docker-compose -f deploy/docker/docker-compose.cpu.yml up -d`
+- `docker compose` command path will be defined by the active deploy ticket
 - Run `scripts/run_eval.py` against staging.
 - If eval regresses: auto-create `DEBT-*` ticket.
 
 ### 6.2 Production (Sprint boundary)
-- `update-models.sh` → pin new model IDs.
-- `provision-tenant.sh` → add new tenant to Qdrant + Postgres.
-- `backup.sh` → schedule via cron.
+- Deploy/service promotion workflows are defined per ticket via infra tasks.
 - **Promotion gated by:**
   1. `docs/eval/scoreboard.md` trend flat or up for 1 sprint.
   2. `enterprise-rag-review` green.
