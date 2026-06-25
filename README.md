@@ -54,8 +54,4 @@ Replace `.env` secrets before any non-local deployment.
 - **Observability**: Prometheus, Grafana, Langfuse
 - **Guardrails**: Guardrails AI (PII, topic, hallucination, injection)
 
-See [`docs/architecture.md`](docs/architecture.md) for the full diagram and data flows.
-
----
-
 MIT License.
