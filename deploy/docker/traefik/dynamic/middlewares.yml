@@ -1,0 +1,64 @@
+# Traefik Dynamic Configuration - Middlewares
+http:
+  middlewares:
+    # Rate limiting for RAG API
+    rag-ratelimit:
+      rateLimit:
+        average: 50
+        burst: 100
+        period: 1m
+        sourceCriterion:
+          ipStrategy:
+            depth: 0
+          requestHeaderName: X-Tenant-ID
+
+    # Auth forward to Keycloak
+    rag-auth:
+      forwardAuth:
+        address: http://keycloak:8080/realms/rag-platform/protocol/openid-connect/userinfo
+        trustForwardHeader: true
+        authResponseHeaders:
+          - X-User-ID
+          - X-Tenant-ID
+          - X-Roles
+
+    # Basic auth for Traefik dashboard
+    traefik-auth:
+      basicAuth:
+        users:
+          - "${TRAEFIK_AUTH:-admin:$$apr1$$H6uskkkW$$IgXLP6ewTrSuBkTrqE8wj/}"
+
+    # Security headers
+    security-headers:
+      headers:
+        browserXssFilter: true
+        contentTypeNosniff: true
+        forceSTSHeader: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+        customFrameOptionsValue: SAMEORIGIN
+        customResponseHeaders:
+          X-Content-Type-Options: nosniff
+          X-Frame-Options: SAMEORIGIN
+          Referrer-Policy: strict-origin-when-cross-origin
+
+    # CORS
+    cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+          - OPTIONS
+        accessControlAllowHeaders:
+          - Authorization
+          - Content-Type
+          - X-Tenant-ID
+          - X-Request-ID
+        accessControlAllowOriginList:
+          - "*"
+        accessControlMaxAge: 3600
+        addVaryHeader: true

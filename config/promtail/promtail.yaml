@@ -1,0 +1,77 @@
+# Promtail Configuration
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: info
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    batchwait: 1s
+    batchsize: 102400
+    timeout: 10s
+    backoff_config:
+      min_period: 1s
+      max_period: 10s
+      max_retries: 10
+
+positions:
+  filename: /tmp/positions.yaml
+
+scrape_configs:
+  - job_name: docker-containers
+    static_labels:
+      host: '${HOSTNAME}'
+      environment: '${ENVIRONMENT:-development}'
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 10s
+        filters:
+          - name: label
+            values: ["enable_logging=true"]
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        target_label: 'container'
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: 'stream'
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_project']
+        target_label: 'project'
+      - regex: '/var/lib/docker/containers/(?P<container_id>[^/]+)/.*'
+        replacement: '${container_id}'
+        target_label: 'container_id'
+      - action: labelmap
+        regex: '__meta_docker_container_label_(.+)'
+      - action: replace
+        replacement: '${HOSTNAME}'
+        target_label: 'host'
+
+  - job_name: rag-api
+    static_labels:
+      service: rag-api
+      team: platform
+    static_configs:
+      - targets: ['localhost']
+        labels:
+          __path__: /var/log/rag-api/*.log
+
+  - job_name: nginx
+    static_configs:
+      - targets: ['localhost']
+        labels:
+          __path__: /var/log/nginx/*access*.log
+          service: nginx
+          type: access
+      - targets: ['localhost']
+        labels:
+          __path__: /var/log/nginx/*error*.log
+          service: nginx
+          type: error
+
+  - job_name: traefik
+    static_configs:
+      - targets: ['localhost']
+        labels:
+          __path__: /var/log/traefik/access.log
+          service: traefik
+          type: access

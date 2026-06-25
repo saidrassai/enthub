@@ -121,3 +121,10 @@ logs/
 
 
 
+
+# Reference clones (external, not part of this repo)
+ENTHub_project/
+*/onyx/
+*/surfsense/
+*/anythingllm/
+*/anything-llm/

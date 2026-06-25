@@ -1,39 +1,27 @@
 # =============================================================================
-# ENTERPRISE AGENTIC RAG — DOCKERFILE
+# PDF PARSING — Marker (PDF → Markdown + tables + equations)
 # =============================================================================
-
 FROM python:3.11-slim
 
-# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    curl \
-    git \
-    libpq-dev \
+    libopencv-dev \
+    tesseract-ocr \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
 WORKDIR /app
 
-# Install Python dependencies
-COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir marker-pdf==0.5.1
 
-# Copy application code
-COPY . .
+COPY parse_server.py /app/
+COPY parse_entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-# Create non-root user
-RUN useradd --create-home --shell /bin/bash app && \
-    chown -R app:app /app
-USER app
-
-# Expose port
 EXPOSE 8000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Run application
-CMD ["python", "-m", "rag_api.main"]
+ENTRYPOINT ["/entrypoint.sh"]

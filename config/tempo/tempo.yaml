@@ -1,0 +1,65 @@
+# Tempo Configuration
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+  log_level: info
+
+distributor:
+  receivers:
+    jaeger:
+      protocols:
+        thrift_http:
+          endpoint: 0.0.0.0:14268
+        grpc:
+          endpoint: 0.0.0.0:14250
+        thrift_binary:
+          endpoint: 0.0.0.0:6832
+        thrift_compact:
+          endpoint: 0.0.0.0:6831
+    zipkin:
+      endpoint: 0.0.0.0:9411
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+ingester:
+  max_block_duration: 5m
+  max_block_bytes: 1_000_000
+  complete_block_timeout: 15m
+  trace_idle_period: 10s
+
+compactor:
+  compaction:
+    block_retention: 48h
+    compacted_block_retention: 1h
+    retention_concurrency: 10
+    retention_delay: 30m
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/traces
+    pool:
+      max_workers: 100
+      queue_depth: 10000
+
+overrides:
+  defaults:
+    ingestion_rate_limit_mb: 10
+    ingestion_burst_size_mb: 20
+    max_traces_per_user: 10000
+
+querier:
+  max_parallelism: 10
+
+query_frontend:
+  search:
+    duration_slo: 5s
+    throughput_bytes_slo: 1.073741824e+09
+  trace_by_id:
+    duration_slo: 5s
+    throughput_bytes_slo: 1.073741824e+08

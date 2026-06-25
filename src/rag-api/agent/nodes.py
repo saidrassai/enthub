@@ -364,7 +364,7 @@ Return JSON: {{"needs_more": true/false, "followup_query": "..." or null}}"""
 
         # Search Qdrant
         results = await self.vector.hybrid_search(
-            collection_name=f"tenant_{tenant.tenant_id}",
+            tenant_id=tenant.tenant_id,
             dense_vector=dense_vec,
             sparse_vector=sparse_vec,
             filters=filters,
@@ -376,7 +376,7 @@ Return JSON: {{"needs_more": true/false, "followup_query": "..." or null}}"""
     async def _dense_search(self, query: str, filters: Dict, top_k: int, tenant: TenantConfig) -> List[Dict]:
         dense_vec = await self.embed.embed_dense(query)
         return await self.vector.dense_search(
-            collection_name=f"tenant_{tenant.tenant_id}",
+            tenant_id=tenant.tenant_id,
             vector=dense_vec,
             filters=filters,
             limit=top_k
@@ -385,7 +385,7 @@ Return JSON: {{"needs_more": true/false, "followup_query": "..." or null}}"""
     async def _sparse_search(self, query: str, filters: Dict, top_k: int, tenant: TenantConfig) -> List[Dict]:
         sparse_vec = await self.embed.embed_sparse(query)
         return await self.vector.sparse_search(
-            collection_name=f"tenant_{tenant.tenant_id}",
+            tenant_id=tenant.tenant_id,
             sparse_vector=sparse_vec,
             filters=filters,
             limit=top_k
@@ -394,7 +394,7 @@ Return JSON: {{"needs_more": true/false, "followup_query": "..." or null}}"""
     async def _colbert_search(self, query: str, filters: Dict, top_k: int, tenant: TenantConfig) -> List[Dict]:
         colbert_vecs = await self.embed.embed_colbert(query)
         return await self.vector.colbert_search(
-            collection_name=f"tenant_{tenant.tenant_id}",
+            tenant_id=tenant.tenant_id,
             vectors=colbert_vecs,
             filters=filters,
             limit=top_k

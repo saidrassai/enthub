@@ -75,7 +75,7 @@ services:
       KC_METRICS_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
     volumes:
-      - ./auth/keycloak-config/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+      - ../../src/auth/keycloak-config/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
     ports:
       - "8080:8080"
     networks:
@@ -115,7 +115,7 @@ services:
   # VECTOR DATABASE — Qdrant (hybrid search, multi-tenancy, collections=tenants)
   # ---------------------------------------------------------------------------
   qdrant:
-    image: qdrant/qdrant:v1.10
+    image: qdrant/qdrant:v1.11.3
     container_name: rag-qdrant
     command:
       - --config-path=/qdrant/config/production.yaml
@@ -142,7 +142,7 @@ services:
   # OBJECT STORAGE — MinIO (S3-compatible, ingestion artifacts, backups)
   # ---------------------------------------------------------------------------
   minio:
-    image: minio/minio:RELEASE.2024-06-20T16-50-27Z
+    image: minio/minio:latest
     container_name: rag-minio
     command: server /data --console-address ":9001"
     environment:
@@ -206,18 +206,14 @@ services:
   # EMBEDDINGS — txtai (BGE-M3: dense + sparse + ColBERT, CPU/GPU)
   # ---------------------------------------------------------------------------
   embed:
-    image: ghcr.io/neuml/txtai:latest
+    build:
+      context: .
+      dockerfile: embed.Dockerfile
     container_name: rag-embed
-    command:
-      - --model
-      - ${EMBED_MODEL:-BAAI/bge-m3}
-      - --device
-      - ${EMBED_DEVICE:-cuda}
-      - --port
-      - "8000"
-      - --batch-size
-      - "32"
     environment:
+      EMBED_MODEL: ${EMBED_MODEL:-BAAI/bge-m3}
+      EMBED_DEVICE: ${EMBED_DEVICE:-cuda}
+      PORT: "8000"
       HF_TOKEN: ${HF_TOKEN:-}
     volumes:
       - hf-cache:/root/.cache/huggingface
@@ -242,16 +238,14 @@ services:
   # RERANKER — txtai (BGE-Reranker-v2-M3, cross-encoder)
   # ---------------------------------------------------------------------------
   rerank:
-    image: ghcr.io/neuml/txtai:latest
+    build:
+      context: .
+      dockerfile: rerank.Dockerfile
     container_name: rag-rerank
-    command:
-      - --model
-      - ${RERANK_MODEL:-BAAI/bge-reranker-v2-m3}
-      - --device
-      - ${RERANK_DEVICE:-cuda}
-      - --port
-      - "8000"
     environment:
+      RERANK_MODEL: ${RERANK_MODEL:-BAAI/bge-reranker-v2-m3}
+      RERANK_DEVICE: ${RERANK_DEVICE:-cuda}
+      PORT: "8000"
       HF_TOKEN: ${HF_TOKEN:-}
     volumes:
       - hf-cache:/root/.cache/huggingface
@@ -307,23 +301,24 @@ services:
       retries: 3
 
   # ---------------------------------------------------------------------------
-  # PDF PARSING — Marker (PDF → Markdown + tables + equations)
+  # PDF PARSING — Marker (PDF → Markdown + tables + equations) — DISABLED FOR POC
   # ---------------------------------------------------------------------------
-  parse:
-    image: vikparuchuri/marker:latest
-    container_name: rag-parse
-    command: python -m marker.api --host 0.0.0.0 --port 8000
-    environment:
-      PYTHONUNBUFFERED: "1"
-    ports:
-      - "8005:8000"
-    networks:
-      - rag-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+  # parse:
+  #   build:
+  #     context: .
+  #     dockerfile: parse.Dockerfile
+  #   container_name: rag-parse
+  #   environment:
+  #     PYTHONUNBUFFERED: "1"
+  #   ports:
+  #     - "8005:8000"
+  #   networks:
+  #     - rag-network
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
 
   # ---------------------------------------------------------------------------
   # GUARDRAILS — Guardrails AI server (PII, safety, topic, custom rails)
@@ -337,7 +332,7 @@ services:
       GUARDRAILS_CONFIG: /app/rails
       LOG_LEVEL: INFO
     volumes:
-      - ./src/guardrails/rails:/app/rails:ro
+      - ../../src/guardrails/rails:/app/rails:ro
     ports:
       - "8006:8000"
     networks:
@@ -452,7 +447,7 @@ services:
   # METRICS — Prometheus (scraping, alerting)
   # ---------------------------------------------------------------------------
   prometheus:
-    image: prom/prometheus:v2.54
+    image: prom/prometheus:v2.54.1
     container_name: rag-prometheus
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -479,7 +474,7 @@ services:
   # VISUALIZATION — Grafana (dashboards, alerting UI)
   # ---------------------------------------------------------------------------
   grafana:
-    image: grafana/grafana:11.0
+    image: grafana/grafana:11.0.1
     container_name: rag-grafana
     environment:
       GF_SECURITY_ADMIN_USER: admin
@@ -509,7 +504,7 @@ services:
   # LOG AGGREGATION — Loki + Promtail
   # ---------------------------------------------------------------------------
   loki:
-    image: grafana/loki:2.9
+    image: grafana/loki:2.9.8
     container_name: rag-loki
     command: -config.file=/etc/loki/local-config.yaml
     volumes:
@@ -521,7 +516,7 @@ services:
       - rag-network
 
   promtail:
-    image: grafana/promtail:2.9
+    image: grafana/promtail:2.9.8
     container_name: rag-promtail
     volumes:
       - /var/log:/var/log:ro
@@ -536,7 +531,7 @@ services:
   # DISTRIBUTED TRACING — Tempo
   # ---------------------------------------------------------------------------
   tempo:
-    image: grafana/tempo:2.4
+    image: grafana/tempo:2.4.1
     container_name: rag-tempo
     command:
       - -config.file=/etc/tempo/tempo.yaml
@@ -549,32 +544,6 @@ services:
       - "4318:4318"  # OTLP HTTP
     networks:
       - rag-network
-
-  # ---------------------------------------------------------------------------
-  # TENANT OPERATOR — Custom controller (provisions tenant resources)
-  # ---------------------------------------------------------------------------
-  tenant-operator:
-    build:
-      context: ../../src/auth/operator
-      dockerfile: Dockerfile
-    container_name: rag-tenant-operator
-    environment:
-      KUBERNETES_NAMESPACE: ${K8S_NAMESPACE:-rag-platform}
-      KEYCLOAK_URL: http://keycloak:8080
-      KEYCLOAK_ADMIN_USER: ${KEYCLOAK_ADMIN:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-changeme}
-      QDRANT_URL: http://qdrant:6333
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-changeme}
-      POSTGRES_DSN: postgresql://rag:${POSTGRES_PASSWORD:-changeme}@postgres:5432/rag_platform
-    networks:
-      - rag-network
-    depends_on:
-      - keycloak
-      - qdrant
-      - minio
-      - postgres
 
 # =============================================================================
 # NETWORKS
